@@ -1,0 +1,46 @@
+tika
+ipykernel
+nltk
+spacy 
+#python -m spacy download en_core_web_sm
+PyPDF2
+
+bs4
+
+#backend
+fastapi[standard]
+sqlalchemy 
+python-dotenv
+psycopg2
+PyJWT>=2.0.0
+passlib
+pydantic_settings
+jose
+
+
+#web scraping
+requests 
+selenium 
+pandas
+
+#job data extraction
+skillNer
+transformers 
+torch
+TensorFlow 
+
+
+# LangChain Core
+langchain
+langchain-core
+
+# Google Gemini (PaLM) Integration
+langchain-google-genai
+google-generativeai
+
+# Machine Learning Utilities
+numpy
+scikit-learn
+
+#vectordb
+pinecone[grpc]
