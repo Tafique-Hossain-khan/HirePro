@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter,HTTPException ,Depends,status,Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.oauth2 import get_current_user  
@@ -83,15 +84,15 @@ def register_user(user: UserModel, db: Session = Depends(get_db)):
         # Generate vector embedding of the bio
         bio_embedding = embeddings.embed_documents([user.bio])[0]  # Get the first embedding
 
-        # Store in Pinecone
-        index.upsert([
-        (str(new_user.id), bio_embedding, {"user_id": new_user.id, "email": new_user.email, "name": new_user.name})
-        ])
-
 
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
+
+        # Store in Pinecone
+        index.upsert([
+        (str(new_user.id), bio_embedding, { "email": new_user.email, "name": new_user.name})
+        ])
 
         # Add skills
         for skill in user.skills:
@@ -221,21 +222,32 @@ def view_user_profile(
     certifications=[CertificationModel(**cert.__dict__) for cert in user.certifications]  # Convert to dict
     )
 
-
+#------------Recommedation system -------------
 
 
 @router.get("/jobs")
 def recommend_jobs(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user_profile = get_user_profile(user.id, db)
+    
+    # Ensure user profile exists
     if not user_profile:
-        return {"message": "User profile not found"}
+        return JSONResponse(status_code=404, content={"message": "User profile not found"})
+
+    # Ensure user profile has required fields
+    if not any([user_profile.get("skills"), user_profile.get("experience"), user_profile.get("projects")]):
+        return JSONResponse(status_code=400, content={"message": "User profile is incomplete for recommendations"})
 
     jobs = get_all_jobs(db)
-    recommended_jobs = compute_similarity(user_profile, jobs)
 
-    return {"recommended_jobs": recommended_jobs[:10]}  # Return top 10 jobs
+    # Ensure job list is not empty
+    if not jobs:
+        return JSONResponse(status_code=404, content={"message": "No job postings found"})
 
-
+    try:
+        recommended_jobs = compute_similarity(user_profile, jobs)
+        return {"recommended_jobs": recommended_jobs}  # Return top 10 jobs
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": "Error computing recommendations", "error": str(e)})
 
 
 
