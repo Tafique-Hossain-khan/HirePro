@@ -1,0 +1,88 @@
+.horizontal-scroll-text-animation-section {
+  --white: #fafafa;
+  --blue: #1300ff;
+  --dusk: #1547c6;
+  --purple: #5133fc;
+  --background: var(--dusk);
+  --accent: var(--white);
+
+  margin: 0;
+  padding: 2rem 0;
+  background: transparent;
+  overflow: hidden;
+  color: var(--accent);
+  background-color: var(--background);
+  font-family: "Plaster", sans-serif;
+  font-style: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+html {
+  scroll-snap-type: y mandatory;
+}
+
+.horizontal-scroll-text-animation-section h1,
+h2,
+h3 {
+  font-family: sofia-pro, sans-serif;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.horizontal-scroll-text-animation-section h1 {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 1.2;
+  text-align: center;
+  margin: 100px 0 40px;
+}
+
+.horizontal-scroll-text-animation-section h2 {
+  font-weight: 400;
+  margin: 50px 0 10px;
+}
+.horizontal-scroll-text-animation-section p {
+  margin: 0 0 30px 0;
+  font-size: 18px;
+}
+
+.horizontal-scroll-text-animation-section {
+  padding-top: 6vh;
+  padding-bottom: 6vh;
+  position: relative;
+  margin-top: 100px;
+  margin-bottom: 100px;
+  filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5));
+  background: transparent;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  /* filter:invert(1); */
+  background-color: var(--purple);
+}
+
+.parallax {
+  overflow: hidden;
+  letter-spacing: -2px;
+  line-height: 0.8;
+  margin: 0;
+  white-space: nowrap;
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.parallax .scroller {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 64px;
+  display: flex;
+  white-space: nowrap;
+  display: flex;
+  flex-wrap: nowrap;
+}
+
+.parallax span {
+  display: block;
+  margin-right: 30px;
+  color: var(--accent);
+}
