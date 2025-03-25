@@ -7,9 +7,10 @@ app = FastAPI()
 models.Base.metadata.create_all(engine)
 
 app.include_router(hr.router)
-app.include_router(job.router)
+#app.include_router(job.router)
 app.include_router(users.router)
 # app.include_router(auth.router)
+
 
 from fastapi.middleware.cors import CORSMiddleware
 

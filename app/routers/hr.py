@@ -136,7 +136,7 @@ def post_job(job_data: JobCreate, db: Session = Depends(get_db), current_hr: HR 
     return {"message": "Job posted successfully"}
 
 
-@router.get("/dashboard")
+@router.get("/jobs")
 def get_hr_jobs(current_hr: HR = Depends(get_current_hr), db: Session = Depends(get_db)):
     """
     Fetch all job listings posted by the authenticated HR.

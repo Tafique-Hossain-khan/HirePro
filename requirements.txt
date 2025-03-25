@@ -4,8 +4,13 @@ nltk
 spacy 
 #python -m spacy download en_core_web_sm
 PyPDF2
-
+streamlit
+sounddevice
+pyaudio
+streamlit_webrtc
 bs4
+
+keyboard
 
 #backend
 fastapi[standard]
@@ -34,6 +39,8 @@ TensorFlow
 langchain
 langchain-core
 
+langchain-openai 
+openai-whisper
 # Google Gemini (PaLM) Integration
 langchain-google-genai
 google-generativeai
