@@ -111,3 +111,14 @@ class TokenData(BaseModel):
     id: Optional[int] = None
 
 
+class InterviewSettings(BaseModel):
+    topic: str
+    difficulty: str
+    questionCount: int
+
+class QuestionAnswer(BaseModel):
+    question: str
+    answer: str
+
+class QuestionAnswerPairs(BaseModel):
+    questionAnswerPairs: List[QuestionAnswer]

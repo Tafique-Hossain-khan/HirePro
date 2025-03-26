@@ -1,10 +1,16 @@
 
-from fastapi import APIRouter,HTTPException ,Depends,status,Response
+from fastapi import APIRouter,HTTPException ,Depends,status,Response,File,UploadFile,BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.oauth2 import get_current_user  
 import os
+import uuid
+import tempfile
+from typing import List, Dict, Any, Optional
+import logging
+
+
 
 from app import models, schemas, oauth2
 from app.database import get_db
@@ -12,7 +18,7 @@ from app.ranking_system import calculate_similarity, get_user_profile_text, get_
 
 
 from app.models import User, Skill, Language, WorkExperience, Project, Certification
-from app.schemas import UserModel, UserResponseModel,UserUpdateModel
+from app.schemas import UserModel, UserResponseModel,InterviewSettings, QuestionAnswer, QuestionAnswerPairs
 from .. import schemas
 from ..oauth2 import create_access_token
 from app.schemas import WorkExperienceModel, ProjectModel, CertificationModel
@@ -24,15 +30,31 @@ import numpy as np
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 
+
+
+
+import whisper
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+
 #setting up vector db
-API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
 # Ensure API key is not None
 if not PINECONE_API_KEY:
     raise ValueError("PINECONE_API_KEY is not set!")
 
-if not API_KEY:
+if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is not set!")
 
 
@@ -48,7 +70,7 @@ if INDEX_NAME not in [index_info.name for index_info in pc.list_indexes()]:
 
 
 # Initialize Google Generative AI Embeddings
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=API_KEY)
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GEMINI_API_KEY)
 print(f"Successfully connected to Pinecone index: {INDEX_NAME}")
 
 
@@ -307,4 +329,351 @@ def apply_for_job(job_id: int, user=Depends(oauth2.get_current_user), db: Sessio
 
 
 
+#----- AI mock interview
+# Get API credentials
+API_KEY = os.environ.get("API_KEY")
+BASE_URL = os.environ.get("BASE_URL")
+
+if not API_KEY:
+    logger.warning("OPENAI_API_KEY environment variable not set!")
+
+# Load Whisper model
+try:
+    model = whisper.load_model("medium")
+    logger.info("Whisper medium model loaded successfully")
+except Exception as e:
+    logger.error(f"Error loading Whisper model: {e}")
+    model = None
+
+# Initialize OpenAI model for LangChain
+def get_llm():
+    try:
+        return ChatOpenAI(
+            model="gpt-4o",
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            temperature=0.3
+        )
+    except Exception as e:
+        logger.error(f"Error initializing ChatOpenAI: {e}")
+        return None
+
+# Question generation prompt template
+QUESTION_PROMPT_TEMPLATE = """
+You are an expert interviewer for {topic}. 
+Create {question_count} {difficulty} level interview questions about {topic}.
+The questions should be challenging but fair, and should test the candidate's knowledge and understanding of {topic}.
+Return only the list of questions numbered from 1 to {question_count}, without any additional text.
+"""
+
+# Answer evaluation prompt template
+ANSWER_EVALUATION_TEMPLATE = """
+You are an expert interviewer evaluating a candidate's response to a technical interview question.
+
+Question: {question}
+Candidate's Answer: {answer}
+
+Please evaluate the answer on a scale of 1-10 (with 10 being perfect) and provide constructive feedback.
+Return your response in this JSON format:
+{{
+  "score": [score as a number between 1 and 10],
+  "feedback": "[your detailed feedback with specific suggestions for improvement]"
+}}
+"""
+
+# Report generation prompt template
+REPORT_TEMPLATE = """
+You are an expert interviewer generating a final report for a mock interview.
+
+Questions and Answers:
+{qa_pairs}
+
+Please analyze the candidate's performance and generate a comprehensive feedback report.
+Include an overall assessment, strengths, areas for improvement, and specific recommendations.
+Calculate an overall score from 1-10 based on the individual answers.
+
+Return your response in this JSON format:
+{{
+  "totalScore": [overall score as a number between 1 and 10],
+  "answerFeedbacks": [array of individual feedback objects]
+}}
+"""
+
+@router.post("/mock-interview")
+async def mock_interview_endpoint(settings: InterviewSettings = None, audio: UploadFile = File(None)):
+    """
+    Main interview endpoint that can:
+    1. Generate questions when settings are provided
+    2. Transcribe audio when audio file is provided
+    """
+    # If audio file is provided, transcribe it
+    if audio:
+        return await transcribe_audio(audio)
     
+    # If settings are provided, generate questions
+    if settings:
+        return await generate_questions(settings)
+    
+    # If neither, return an error
+    raise HTTPException(status_code=400, detail="Either settings or audio file must be provided")
+
+# Helper function to generate questions
+async def generate_questions(settings: InterviewSettings):
+    try:
+        llm = get_llm()
+        if not llm:
+            # Fallback questions based on topic if OpenAI not available
+            topic = settings.topic.lower()
+            
+            topic_questions = {
+                "javascript": [
+                    "Explain the concept of closures in JavaScript.",
+                    "What are the differences between var, let, and const?",
+                    "How does prototypal inheritance work in JavaScript?",
+                    "Describe the event loop in JavaScript.",
+                    "What are promises and how do they work?"
+                ],
+                "python": [
+                    "Explain Python's GIL (Global Interpreter Lock) and its implications.",
+                    "What are decorators in Python and how do they work?",
+                    "Describe list comprehensions and their advantages.",
+                    "How does memory management work in Python?",
+                    "What are generators and how do they differ from lists?"
+                ],
+                "data science": [
+                    "Explain the difference between supervised and unsupervised learning.",
+                    "What is overfitting and how can it be prevented?",
+                    "Describe the process of feature selection in machine learning.",
+                    "What is the curse of dimensionality?",
+                    "Explain the bias-variance tradeoff in machine learning models."
+                ],
+                "react": [
+                    "Explain the concept of virtual DOM in React.",
+                    "What are React hooks and why were they introduced?",
+                    "Describe the component lifecycle in React.",
+                    "What is the difference between state and props?",
+                    "How do you handle side effects in React components?"
+                ]
+            }
+            
+            # Get questions for the requested topic or use general questions
+            questions = topic_questions.get(topic, [
+                "Explain the concept of variables in programming.",
+                "What are functions and how do they work?",
+                "Describe object-oriented programming principles.",
+                "What is version control and why is it important?",
+                "Explain the concept of APIs in software development."
+            ])
+            
+            if settings.questionCount < len(questions):
+                questions = questions[:settings.questionCount]
+            
+            return {"questions": questions}
+        
+        prompt = PromptTemplate(
+            input_variables=["topic", "difficulty", "question_count"],
+            template=QUESTION_PROMPT_TEMPLATE
+        )
+        
+        chain = LLMChain(llm=llm, prompt=prompt)
+        
+        result = chain.run({
+            "topic": settings.topic,
+            "difficulty": settings.difficulty,
+            "question_count": settings.questionCount
+        })
+        
+        # Parse result to get questions (assuming numbered format)
+        questions = []
+        lines = result.strip().split('\n')
+        for line in lines:
+            if line and any(line.startswith(f"{i}.") for i in range(1, settings.questionCount + 1)):
+                questions.append(line[line.find(" ") + 1:].strip())
+        
+        # Ensure we have the right number of questions
+        if len(questions) != settings.questionCount:
+            # Try an alternative parsing strategy
+            questions = [line.strip() for line in lines if line.strip()]
+            if len(questions) > settings.questionCount:
+                questions = questions[:settings.questionCount]
+            elif len(questions) < settings.questionCount:
+                # Fill with default questions if we couldn't parse enough
+                default_questions = [
+                    f"Tell me about your experience with {settings.topic}.",
+                    f"What are the key concepts in {settings.topic}?",
+                    f"How would you explain {settings.topic} to a beginner?"
+                ]
+                while len(questions) < settings.questionCount and default_questions:
+                    questions.append(default_questions.pop(0))
+        
+        return {"questions": questions}
+        
+    except Exception as e:
+        logger.error(f"Error generating questions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Helper function to transcribe audio
+async def transcribe_audio(audio: UploadFile = File(...)):
+    try:
+        if not model:
+            raise HTTPException(status_code=500, detail="Whisper model not loaded")
+        
+        # Save uploaded file temporarily
+        temp_dir = tempfile.mkdtemp()
+        temp_file_path = os.path.join(temp_dir, f"{uuid.uuid4()}.webm")
+        
+        with open(temp_file_path, "wb") as buffer:
+            content = await audio.read()
+            buffer.write(content)
+        
+        try:
+            # Transcribe the audio file
+            logger.info(f"Starting transcription of file: {temp_file_path}")
+            result = model.transcribe(temp_file_path)
+            transcription = result["text"].strip()
+            logger.info(f"Transcription completed successfully, length: {len(transcription)}")
+        except Exception as e:
+            logger.error(f"Error during transcription: {e}")
+            raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
+        finally:
+            # Clean up the temporary file
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                if os.path.exists(temp_dir):
+                    os.rmdir(temp_dir)
+            except Exception as e:
+                logger.error(f"Error cleaning up temp files: {e}")
+
+        if not transcription:
+            return {"transcription": "The audio couldn't be transcribed clearly. Please try speaking more clearly or check your microphone."}
+            
+        return {"transcription": transcription}
+        
+    except Exception as e:
+        logger.error(f"Error transcribing audio: {e}")
+        return {"transcription": f"Sorry, there was an error transcribing your audio: {str(e)}. Please try again."}
+
+# Endpoint to evaluate a single answer
+@router.post("/mock-interview/evaluate")
+async def evaluate_answer(question_answer: QuestionAnswer):
+    try:
+        llm = get_llm()
+        if not llm:
+            return {
+                "score": 7,
+                "feedback": "AI evaluation is currently unavailable. This is a fallback response."
+            }
+        
+        prompt = PromptTemplate(
+            input_variables=["question", "answer"],
+            template=ANSWER_EVALUATION_TEMPLATE
+        )
+        
+        chain = LLMChain(llm=llm, prompt=prompt)
+        
+        result = chain.run({
+            "question": question_answer.question,
+            "answer": question_answer.answer
+        })
+        
+        # Parse the JSON result
+        import json
+        try:
+            feedback = json.loads(result)
+            return feedback
+        except:
+            # If JSON parsing fails, return a default response
+            return {
+                "score": 7,
+                "feedback": "The answer provides a basic understanding but could be more comprehensive. Consider adding specific examples and explaining the underlying concepts in more detail."
+            }
+    
+    except Exception as e:
+        logger.error(f"Error evaluating answer: {e}")
+        return {
+            "score": 5,
+            "feedback": "Error in evaluation process. Please try again."
+        }
+
+# Endpoint to generate the final interview report
+@router.post("/mock-interview/report")
+async def generate_report(qa_pairs: QuestionAnswerPairs):
+    try:
+        llm = get_llm()
+        if not llm:
+            # Generate a fallback report
+            feedbacks = []
+            total_score = 0
+            
+            for i, qa in enumerate(qa_pairs.questionAnswerPairs):
+                score = 6 + (i % 3)  # Scores between 6-8
+                feedbacks.append({
+                    "score": score,
+                    "feedback": f"This answer demonstrates adequate knowledge but could be improved with more specific examples."
+                })
+                total_score += score
+            
+            if len(qa_pairs.questionAnswerPairs) > 0:
+                total_score /= len(qa_pairs.questionAnswerPairs)
+            
+            return {
+                "totalScore": round(total_score, 1),
+                "answerFeedbacks": feedbacks
+            }
+        
+        # Format the QA pairs for the prompt
+        formatted_qa = ""
+        for i, qa in enumerate(qa_pairs.questionAnswerPairs):
+            formatted_qa += f"Question {i+1}: {qa.question}\nAnswer {i+1}: {qa.answer}\n\n"
+        
+        prompt = PromptTemplate(
+            input_variables=["qa_pairs"],
+            template=REPORT_TEMPLATE
+        )
+        
+        chain = LLMChain(llm=llm, prompt=prompt)
+        
+        result = chain.run({
+            "qa_pairs": formatted_qa
+        })
+        
+        # Parse the JSON result
+        import json
+        try:
+            report = json.loads(result)
+            return report
+        except:
+            # If JSON parsing fails, return a default report
+            feedbacks = []
+            for i, qa in enumerate(qa_pairs.questionAnswerPairs):
+                feedbacks.append({
+                    "score": 7,
+                    "feedback": f"Good attempt on question {i+1}. Your answer covers the main points but could use more specific examples."
+                })
+            
+            return {
+                "totalScore": 7.0,
+                "answerFeedbacks": feedbacks
+            }
+    
+    except Exception as e:
+        logger.error(f"Error generating report: {e}")
+        return {
+            "totalScore": 6.0,
+            "answerFeedbacks": [
+                {
+                    "score": 6,
+                    "feedback": "Error generating detailed feedback."
+                }
+            ]
+        }
+
+# Keep compatibility with previous routes
+@router.post("/mock-interview/questions")
+async def questions_endpoint(settings: InterviewSettings):
+    return await generate_questions(settings)
+
+@router.post("/mock-interview/transcribe")
+async def transcribe_endpoint(audio: UploadFile = File(...)):
+    return await transcribe_audio(audio)
